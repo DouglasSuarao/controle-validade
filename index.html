@@ -168,7 +168,38 @@ main{flex:1;width:100%}
 
 <script>
 const STORAGE_KEY = "controle_validade_produtos_v1";
-let products = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+let products = [];
+let isLoading = true;
+
+async function loadProducts(){
+  isLoading = true;
+  try{
+    const { data, error } = await supabaseClient
+      .from("produtos")
+      .select("id,nome,category,quantidade,validade,localizacao,observacoes,codigo_barras")
+      .order("validade", { ascending: true });
+    if(error) throw error;
+    products = (data || []).map(p => ({
+      id: String(p.id),
+      name: p.nome || "",
+      category: p.category || "",
+      quantity: Number(p.quantidade || 0),
+      expiry: p.validade || "",
+      location: p.localizacao || "",
+      notes: p.observacoes || "",
+      barcode: p.codigo_barras || ""
+    }));
+    render();
+  }catch(error){
+    console.error("Erro ao carregar produtos do Supabase:", error);
+    alert("Não foi possível carregar os produtos do banco de dados. Verifique a tabela e as políticas RLS no Supabase.");
+    products = [];
+    render();
+  }finally{
+    isLoading = false;
+  }
+}
+
 
 
 function downloadBackup(){
@@ -232,7 +263,10 @@ function statusOf(days){
 }
 function formatDate(s){ return dateOnly(s).toLocaleDateString("pt-BR"); }
 function escapeHtml(v=""){return String(v).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
-function persist(){localStorage.setItem(STORAGE_KEY,JSON.stringify(products));}
+function persist(){
+  // Mantido apenas como cópia local temporária. A fonte principal agora é o Supabase.
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(products));}catch{}
+}
 function updateCategories(){
   const sel=document.getElementById("filterCategory"), current=sel.value;
   const cats=[...new Set(products.map(p=>p.category).filter(Boolean))].sort();
@@ -286,23 +320,62 @@ function openModal(id=null){
   setTimeout(()=>document.getElementById("name").focus(),100);
 }
 function closeModal(){document.getElementById("modal").classList.remove("show")}
-function saveProduct(e){
+async function saveProduct(e){
   e.preventDefault();
-  const data={id:document.getElementById("editId").value||crypto.randomUUID(),barcode:document.getElementById("barcode").value.trim(),name:document.getElementById("name").value.trim(),category:document.getElementById("category").value,quantity:Number(document.getElementById("quantity").value),expiry:document.getElementById("expiry").value,location:document.getElementById("location").value.trim(),notes:document.getElementById("notes").value.trim()};
-  const idx=products.findIndex(p=>p.id===data.id);
-  if(idx>=0) products[idx]=data; else products.push(data);
-  persist();closeModal();render();toast(idx>=0?"Produto atualizado!":"Produto cadastrado!");
+  const editId=document.getElementById("editId").value;
+  const data={
+    id: editId || crypto.randomUUID(),
+    barcode: document.getElementById("barcode").value.trim(),
+    name: document.getElementById("name").value.trim(),
+    category: document.getElementById("category").value,
+    quantity: Number(document.getElementById("quantity").value),
+    expiry: document.getElementById("expiry").value,
+    location: document.getElementById("location").value.trim(),
+    notes: document.getElementById("notes").value.trim()
+  };
+
+  try{
+    let error;
+    if(editId){
+      ({ error } = await supabaseClient.from("produtos").update({
+        nome:data.name, category:data.category, quantidade:data.quantity, validade:data.expiry,
+        localizacao:data.location, observacoes:data.notes, codigo_barras:data.barcode,
+        atualizado_em:new Date().toISOString()
+      }).eq("id", editId));
+    }else{
+      ({ error } = await supabaseClient.from("produtos").insert({
+        id:data.id, nome:data.name, category:data.category, quantidade:data.quantity, validade:data.expiry,
+        localizacao:data.location, observacoes:data.notes, codigo_barras:data.barcode
+      }));
+    }
+    if(error) throw error;
+    await loadProducts();
+    closeModal();
+    toast(editId ? "Produto atualizado!" : "Produto cadastrado!");
+  }catch(error){
+    console.error("Erro ao salvar produto:", error);
+    alert("Não foi possível salvar o produto no banco. Verifique as políticas RLS do Supabase.\n\n" + (error.message || "Erro desconhecido"));
+  }
 }
 function editProduct(id){openModal(id)}
-function deleteProduct(id){
+async function deleteProduct(id){
   const p=products.find(x=>x.id===id); if(!p)return;
-  if(confirm(`Excluir "${p.name}"?`)){products=products.filter(x=>x.id!==id);persist();render();toast("Produto excluído.");}
+  if(!confirm(`Excluir "${p.name}"?`))return;
+  try{
+    const { error } = await supabaseClient.from("produtos").delete().eq("id", id);
+    if(error) throw error;
+    await loadProducts();
+    toast("Produto excluído.");
+  }catch(error){
+    console.error("Erro ao excluir produto:", error);
+    alert("Não foi possível excluir o produto no banco.\n\n" + (error.message || "Erro desconhecido"));
+  }
 }
 function clearFilters(){document.getElementById("search").value="";document.getElementById("filterStatus").value="todos";document.getElementById("filterCategory").value="todas";render()}
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200)}
 document.getElementById("modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal()});
 const d=today(); document.getElementById("todayText").textContent="Atualizado em "+d.toLocaleDateString("pt-BR");
-render();
+loadProducts();
 </script>
 </body>
 </html>
