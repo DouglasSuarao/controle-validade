@@ -176,13 +176,13 @@ async function loadProducts(){
   try{
     const { data, error } = await supabaseClient
       .from("produtos")
-      .select("id,nome,category,quantidade,validade,localizacao,observacoes,codigo_barras")
+      .select("id,nome,categoria,quantidade,validade,localizacao,observacoes,codigo_barras")
       .order("validade", { ascending: true });
     if(error) throw error;
     products = (data || []).map(p => ({
       id: String(p.id),
       name: p.nome || "",
-      category: p.category || "",
+      category: p.categoria || "",
       quantity: Number(p.quantidade || 0),
       expiry: p.validade || "",
       location: p.localizacao || "",
@@ -324,7 +324,7 @@ async function saveProduct(e){
   e.preventDefault();
   const editId=document.getElementById("editId").value;
   const data={
-    id: editId || crypto.randomUUID(),
+    id: editId || "",
     barcode: document.getElementById("barcode").value.trim(),
     name: document.getElementById("name").value.trim(),
     category: document.getElementById("category").value,
@@ -338,13 +338,13 @@ async function saveProduct(e){
     let error;
     if(editId){
       ({ error } = await supabaseClient.from("produtos").update({
-        nome:data.name, category:data.category, quantidade:data.quantity, validade:data.expiry,
+        nome:data.name, categoria:data.category, quantidade:data.quantity, validade:data.expiry,
         localizacao:data.location, observacoes:data.notes, codigo_barras:data.barcode,
         atualizado_em:new Date().toISOString()
-      }).eq("id", editId));
+      }).eq("id", Number(editId)));
     }else{
       ({ error } = await supabaseClient.from("produtos").insert({
-        id:data.id, nome:data.name, category:data.category, quantidade:data.quantity, validade:data.expiry,
+        nome:data.name, categoria:data.category, quantidade:data.quantity, validade:data.expiry,
         localizacao:data.location, observacoes:data.notes, codigo_barras:data.barcode
       }));
     }
@@ -362,7 +362,7 @@ async function deleteProduct(id){
   const p=products.find(x=>x.id===id); if(!p)return;
   if(!confirm(`Excluir "${p.name}"?`))return;
   try{
-    const { error } = await supabaseClient.from("produtos").delete().eq("id", id);
+    const { error } = await supabaseClient.from("produtos").delete().eq("id", Number(id));
     if(error) throw error;
     await loadProducts();
     toast("Produto excluído.");
